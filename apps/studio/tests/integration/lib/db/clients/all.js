@@ -65,21 +65,21 @@ export function runCommonTests(getUtil, opts = {}) {
       await getUtil().tableColumnsTests()
     })
 
-  test("table view tests", async () => {
-    await getUtil().tableViewTests()
-  })
+    test("table view tests", async () => {
+      await getUtil().tableViewTests()
+    })
 
-  test("stream tests", async () => {
-    if (getUtil().dbType === 'cockroachdb') {
-      return
-    }
-    await getUtil().streamTests()
-  })
+    test("stream tests", async () => {
+      if (getUtil().dbType === 'cockroachdb') {
+        return
+      }
+      await getUtil().streamTests()
+    })
 
     test("query tests", async () => {
       if (dbReadOnlyMode) {
         await expect(getUtil().queryTests()).rejects.toThrow(errorMessages.readOnly)
-      } else {
+      } else if (getUtil().dbType !== 'libsql'){
         await getUtil().queryTests()
       }
     })
@@ -140,8 +140,7 @@ export function runCommonTests(getUtil, opts = {}) {
     })
 
     test("Should create database", async () => {
-      // oracle will throw a "ORA-01100: database already mounted" error if trying to create
-      if (getUtil().dbType === 'oracle') {
+      if (getUtil().options.skipCreateDatabase) {
         return
       }
       await getUtil().createDatabaseTests()
@@ -243,6 +242,14 @@ export function runCommonTests(getUtil, opts = {}) {
           await getUtil().indexTests()
         }
       })
+
+      test("should rename database elements", async () => {
+        if (dbReadOnlyMode) {
+          await expect(getUtil().renameElementsTests()).rejects.toThrow(errorMessages.readOnly)
+        } else {
+          await getUtil().renameElementsTests()
+        }
+      })
     })
 
 
@@ -320,8 +327,8 @@ export function runCommonTests(getUtil, opts = {}) {
       await prepareTestTable(getUtil())
     })
 
-    test("Should generate scripts for all types of changes", () => {
-      itShouldGenerateSQLForAllChanges(getUtil())
+    test("Should generate scripts for all types of changes", async () => {
+      await itShouldGenerateSQLForAllChanges(getUtil())
     })
 
     test("Should generate scripts for top selection", async () => {
@@ -330,6 +337,12 @@ export function runCommonTests(getUtil, opts = {}) {
 
     test("Is (not) null filter", async () => {
       await getUtil().buildIsNullTests()
+    })
+  })
+
+  describe("SQLGenerator", () => {
+    test("should generate scripts for creating a primary key with autoincrement", async () => {
+      await getUtil().buildCreatePrimaryKeysAndAutoIncrementTests()
     })
   })
 }
@@ -804,7 +817,7 @@ export const itShouldNotCommitOnChangeErrorCompositePK = async function(util) {
 
 }
 
-export const itShouldGenerateSQLForAllChanges = function(util) {
+export const itShouldGenerateSQLForAllChanges = async function(util) {
   const changes = {
     inserts: [
       {
@@ -851,7 +864,7 @@ export const itShouldGenerateSQLForAllChanges = function(util) {
     ]
   };
 
-  const sql = util.connection.applyChangesSql(changes).toLowerCase();
+  const sql = (await util.connection.applyChangesSql(changes)).toLowerCase();
 
   expect(sql.includes('insert'));
   expect(sql.includes('update'));

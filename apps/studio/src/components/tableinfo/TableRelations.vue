@@ -117,7 +117,7 @@ const log = rawLog.scope('TableRelations');
 import { escapeHtml } from '@shared/lib/tabulator'
 
 export default Vue.extend({
-  props: ["table", "connection", "tabId", "active", "properties", 'tabState'],
+  props: ["table", "tabId", "active", "properties", 'tabState'],
   components: {
     StatusBar,
     ErrorAlert
@@ -132,7 +132,7 @@ export default Vue.extend({
     }
   },
   computed: {
-    ...mapState(['tables']),
+    ...mapState(['tables', 'connection']),
     ...mapGetters(['schemas', 'dialect', 'schemaTables', 'dialectData']),
     enabled() {
       return !this.dialectData.disabledFeatures?.alter?.everything
@@ -224,7 +224,7 @@ export default Vue.extend({
           field: 'toColumn',
           title: "FK Column",
           editable,
-          editor: 'select',
+          editor: 'list',
           editorParams: {
             // @ts-expect-error Incorrectly typed
             valuesLookup: this.getColumns
@@ -233,7 +233,7 @@ export default Vue.extend({
         {
           field: 'onUpdate',
           title: "On Update",
-          editor: 'select',
+          editor: 'list',
           editable,
           editorParams: {
             values: this.dialectData.constraintActions,
@@ -244,7 +244,7 @@ export default Vue.extend({
           field: 'onDelete',
           title: 'On Delete',
           editable,
-          editor: 'select',
+          editor: 'list',
           // @ts-expect-error Bad Type
           editorParams: {
             values: this.dialectData.constraintActions,
@@ -350,7 +350,7 @@ export default Vue.extend({
         this.loading = true
         this.error = null
         const payload = this.getPayload()
-        await this.connection.alterRelation(payload)
+        await this.connection.alterRelation(payload);
         this.$noty.success("Relations Updated")
         this.$emit('actionCompleted')
         this.newRows = []
@@ -364,9 +364,9 @@ export default Vue.extend({
       }
 
     },
-    submitSql() {
+    async submitSql() {
       const payload = this.getPayload()
-      const sql = this.connection.alterRelationSql(payload)
+      const sql = await this.connection.alterRelationSql(payload);
       const formatted = format(sql, { language: FormatterDialect(this.dialect)})
       this.$root.$emit(AppEvent.newTab, formatted)
     },

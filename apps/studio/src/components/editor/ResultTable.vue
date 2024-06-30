@@ -21,7 +21,7 @@
   import Papa from 'papaparse'
   import { mapState } from 'vuex'
   import { markdownTable } from 'markdown-table'
-  import * as intervalParse from 'postgres-interval'
+  import intervalParse from 'postgres-interval'
   import * as td from 'tinyduration'
   import { copyRange, copyActionsMenu, commonColumnMenu, resizeAllColumnsToFitContent, resizeAllColumnsToFixedWidth } from '@/lib/menu/tableMenu';
   import { rowHeaderField } from '@/common/utils'
@@ -35,7 +35,7 @@
         actualTableHeight: '100%',
       }
     },
-    props: ['result', 'tableHeight', 'query', 'active', 'tab'],
+    props: ['result', 'tableHeight', 'query', 'active', 'tab', 'focus'],
     watch: {
       active() {
         if (!this.tabulator) return;
@@ -55,10 +55,15 @@
       },
       tableHeight() {
         this.tabulator.setHeight(this.actualTableHeight)
-      }
+      },
+      focus() {
+        if (!this.focus) return
+        this.tabulator.rowManager.getElement().focus()
+        this.scrollToRangeIfOutOfView()
+      },
     },
     computed: {
-      ...mapState(['connection', 'usedConfig']),
+      ...mapState(['usedConfig', 'defaultSchema', 'connectionType']),
       keymap() {
         const result = {}
         result[this.ctrlOrCmd('c')] = this.copySelection.bind(this)
@@ -76,9 +81,8 @@
         const cellMenu = (_e, cell) => {
           return copyActionsMenu({
             range: _.last(cell.getRanges()),
-            connection: this.connection,
             table: this.result.tableName,
-            schema: this.connection.defaultSchema(),
+            schema: this.defaultSchema,
           })
         }
 
@@ -86,9 +90,8 @@
           return [
             ...copyActionsMenu({
               range: _.last(column.getRanges()),
-              connection: this.connection,
               table: 'mytable',
-              schema: this.connection.defaultSchema(),
+              schema: this.defaultSchema,
             }),
             { separator: true },
             ...commonColumnMenu,
@@ -106,7 +109,7 @@
             titleDownload: escapeHtml(column.name),
             dataType: column.dataType,
             width: columnWidth,
-            mutator: this.resolveTabulatorMutator(column.dataType, dialectFor(this.connection.connectionType)),
+            mutator: this.resolveTabulatorMutator(column.dataType, dialectFor(this.connectionType)),
             formatter: this.cellFormatter,
             maxInitialWidth: globals.maxColumnWidth,
             tooltip: this.cellTooltip,
@@ -167,7 +170,7 @@
         });
       },
       copySelection() {
-        if (!document.activeElement.classList.contains('tabulator-tableholder')) return
+        if (!this.active || !document.activeElement.classList.contains('tabulator-tableholder')) return
         copyRange({ range: _.last(this.tabulator.getRanges()), type: 'plain' })
       },
       dataToJson(rawData, firstObjectOnly) {
@@ -239,6 +242,38 @@
           return dateA - dateB;
         } catch {
           return 0;
+        }
+      },
+      scrollToRangeIfOutOfView() {
+        // FIXME This is a copy of how auto scroll works in tabulator
+        // SelectRange. We need to make the API available from tabulator
+        // instead of copying it here.
+        // e.g. this.tabulator.scrollToRangeIfOutOfView
+        const range = this.tabulator.getRanges().pop()
+        const rangeBounds = range.getBounds()
+        const row = rangeBounds.end.row
+        const column = rangeBounds.end.column
+        const rowRect = row.getElement().getBoundingClientRect();
+        const columnRect = column.getElement().getBoundingClientRect();
+        const rowManagerRect = this.tabulator.rowManager.getElement().getBoundingClientRect();
+        const columnManagerRect = this.tabulator.columnManager.getElement().getBoundingClientRect();
+
+        if(!(rowRect.top >= rowManagerRect.top && rowRect.bottom <= rowManagerRect.bottom)){
+          if(row.getElement().parentNode && column.getElement().parentNode){
+            // Use faster autoScroll when the elements are on the DOM
+            this.tabulator.modules.selectRange.autoScroll(range, row.getElement(), column.getElement());
+          }else{
+            row.getComponent().scrollTo(undefined, false);
+          }
+        }
+
+        if(!(columnRect.left >= columnManagerRect.left + this.rowHeaderWidth && columnRect.right <= columnManagerRect.right)){
+          if(row.getElement().parentNode && column.getElement().parentNode){
+            // Use faster autoScroll when the elements are on the DOM
+            this.tabulator.modules.selectRange.autoScroll(range, row.getElement(), column.getElement());
+          }else{
+            column.getComponent().scrollTo(undefined, false);
+          }
         }
       }
     }

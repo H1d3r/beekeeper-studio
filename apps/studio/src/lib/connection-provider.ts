@@ -21,7 +21,8 @@ export default {
     } : null
 
     return {
-      client: config.connectionType,
+      // @ts-ignore
+      client: config.connectionType ?? config._connectionType,
       host: config.host ? config.host.trim() : null,
       port: config.port,
       serviceName: config.serviceName || null,
@@ -45,6 +46,9 @@ export default {
       readOnlyMode: config.readOnlyMode,
       cassandraOptions: config.cassandraOptions,
       bigQueryOptions: config.bigQueryOptions,
+      azureAuthOptions: config.azureAuthOptions,
+      authId: config.authId,
+      libsqlOptions: config.libsqlOptions,
       runtimeExtensions: sqliteExtension ? [sqliteExtension] : []
     }
   },

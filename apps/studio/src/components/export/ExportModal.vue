@@ -7,7 +7,11 @@
       :scrollable="true"
       @closed="$emit('closed')"
     >
-      <form @submit.prevent="submit">
+      <!-- TODO: Make sure one of the elements in this modal is focused so that the keyboard trap works -->
+      <form
+        v-kbd-trap="true"
+        @submit.prevent="submit"
+      >
         <div class="dialog-content">
           <div class="dialog-c-title flex flex-middle">
             <div>
@@ -168,7 +172,7 @@ import dateFormat from 'dateformat'
 import { mapMutations } from "vuex"
 import rawlog from 'electron-log'
 import { ExportFormCSV, ExportFormJSON, ExportFormSQL, ExportFormJsonLine } from "./forms"
-import FilePicker from '../common/form/FilePicker'
+import FilePicker from '../common/form/FilePicker.vue'
 import platformInfo from '../../common/platform_info'
 import { AppEvent } from '@/common/AppEvent'
 const log = rawlog.scope('export/export-modal')
@@ -198,7 +202,7 @@ const exportFormats = [
 
 export default {
   components: { FilePicker },
-  props: ['table', 'query', 'queryName', 'filters', 'connection'],
+  props: ['table', 'query', 'queryName', 'filters'],
   data() {
     return {
       selectedExportFormat: exportFormats[0],
@@ -291,7 +295,6 @@ export default {
     },
   },
   methods: {
-    ...mapMutations({ addExport: "exports/addExport" }),
     async submit() {
       this.error = null;
 

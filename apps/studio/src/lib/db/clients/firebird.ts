@@ -209,6 +209,8 @@ function buildInsertQueries(knex: Knex, inserts: TableInsert[]) {
 }
 
 export class FirebirdClient extends BasicDatabaseClient<FirebirdResult> {
+  connectionBaseType = 'firebird' as const;
+
   version: any;
   pool: Pool;
   firebirdOptions: Firebird.Options;
@@ -222,7 +224,16 @@ export class FirebirdClient extends BasicDatabaseClient<FirebirdResult> {
     this.readOnlyMode = server?.config?.readOnlyMode || false;
   }
 
-  versionString(): string {
+  async checkIsConnected(): Promise<boolean> {
+    try {
+      await this.rawExecuteQuery('SELECT 1 FROM RDB$DATABASE');
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  async versionString(): Promise<string> {
     return this.version;
   }
 
@@ -624,7 +635,7 @@ export class FirebirdClient extends BasicDatabaseClient<FirebirdResult> {
     };
   }
 
-  query(queryText: string): CancelableQuery {
+  async query(queryText: string): Promise<CancelableQuery> {
     let connection: Connection | undefined;
 
     return {
@@ -795,6 +806,12 @@ export class FirebirdClient extends BasicDatabaseClient<FirebirdResult> {
     });
   }
 
+  async setElementNameSql(): Promise<string> {
+    // Firebird doesn't support renaming tables or any database elements we
+    // support. https://www.firebirdfaq.org/faq363/
+    return '';
+  }
+
   async dropElement(
     elementName: string,
     typeOfElement: DatabaseElement,
@@ -807,12 +824,9 @@ export class FirebirdClient extends BasicDatabaseClient<FirebirdResult> {
     return [this.database.database];
   }
 
-  async truncateElement(
-    _elementName: string,
-    _typeOfElement: DatabaseElement,
-    _schema?: string
-  ): Promise<void> {
-    // TODO There is no internal function to truncate a table
+  // TODO There is no internal function to truncate a table
+  async truncateElementSql() {
+    return ''
   }
 
   async duplicateTable(
@@ -870,7 +884,7 @@ export class FirebirdClient extends BasicDatabaseClient<FirebirdResult> {
     }
   }
 
-  applyChangesSql(changes: TableChanges): string {
+  async applyChangesSql(changes: TableChanges): Promise<string> {
     let queriesStr = "";
     buildInsertQueries(this.knex, changes.inserts || []).forEach((query) => {
       queriesStr += `${query};`;
@@ -1010,7 +1024,7 @@ export class FirebirdClient extends BasicDatabaseClient<FirebirdResult> {
     }));
   }
 
-  supportedFeatures(): SupportedFeatures {
+  async supportedFeatures(): Promise<SupportedFeatures> {
     return {
       customRoutines: false,
       comments: false,
@@ -1019,7 +1033,8 @@ export class FirebirdClient extends BasicDatabaseClient<FirebirdResult> {
       editPartitions: false,
       backups: false,
       backDirFormat: false,
-      restore: false
+      restore: false,
+      indexNullsNotDistinct: false,
     };
   }
 
@@ -1078,7 +1093,7 @@ export class FirebirdClient extends BasicDatabaseClient<FirebirdResult> {
     return []; // TODO
   }
 
-  getQuerySelectTop(table: string, limit: number, _schema?: string): string {
+  async getQuerySelectTop(table: string, limit: number, _schema?: string): Promise<string> {
     return `SELECT FIRST ${limit} * FROM ${table}`;
   }
 
@@ -1170,11 +1185,11 @@ export class FirebirdClient extends BasicDatabaseClient<FirebirdResult> {
     return description;
   }
 
-  duplicateTableSql(
+  async duplicateTableSql(
     _tableName: string,
     _duplicateTableName: string,
     _schema?: string
-  ): string {
+  ): Promise<string> {
     // TODO There is no native implementation of this
     throw new Error("Method not implemented.");
   }
@@ -1203,9 +1218,10 @@ export class FirebirdClient extends BasicDatabaseClient<FirebirdResult> {
     return [];
   }
 
-  createDatabaseSQL(): string {
+  async createDatabaseSQL(): Promise<string> {
     throw new Error("Method not implemented.");
   }
+
   async importData(sql: string): Promise<any> {
     const connection = await this.pool.getConnection();
     const transaction = await connection.transaction();

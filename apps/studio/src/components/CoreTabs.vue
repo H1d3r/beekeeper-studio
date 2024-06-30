@@ -62,7 +62,6 @@
           :active="activeTab === tab"
           :tab="tab"
           :tab-id="tab.id"
-          :connection="connection"
         />
         <tab-with-table
           v-if="tab.type === 'table'"
@@ -73,7 +72,6 @@
             <TableTable
               :tab="tab"
               :active="activeTab === tab"
-              :connection="connection"
               :table="slotProps.table"
             />
           </template>
@@ -88,7 +86,6 @@
               :active="activeTab === tab"
               :tab="tab"
               :tab-id="tab.id"
-              :connection="connection"
               :table="slotProps.table"
             />
           </template>
@@ -98,7 +95,6 @@
           :active="activeTab === tab"
           :tab="tab"
           :tab-id="tab.id"
-          :connection="connection"
         />
       </div>
     </div>
@@ -110,30 +106,32 @@
         @closed="sureClosed"
         @before-open="beforeOpened"
       >
-        <div class="dialog-content">
-          <div class="dialog-c-title">
-            Really {{ this.dbAction | titleCase }} <span class="tab-like"><tab-icon
-              :tab="tabIcon"
-            /> {{ this.dbElement }}</span>?
+        <div v-kbd-trap="true">
+          <div class="dialog-content">
+            <div class="dialog-c-title">
+              Really {{ this.dbAction | titleCase }} <span class="tab-like"><tab-icon
+                :tab="tabIcon"
+              /> {{ this.dbElement }}</span>?
+            </div>
+            <p>This change cannot be undone</p>
           </div>
-          <p>This change cannot be undone</p>
-        </div>
-        <div class="vue-dialog-buttons">
-          <span class="expand" />
-          <button
-            ref="no"
-            @click.prevent="$modal.hide(modalName)"
-            class="btn btn-sm btn-flat"
-          >
-            Cancel
-          </button>
-          <button
-            @focusout="sureOpen && $refs.no && $refs.no.focus()"
-            @click.prevent="completeDeleteAction"
-            class="btn btn-sm btn-primary"
-          >
-            {{ this.titleCaseAction }} {{ this.dbElement }}
-          </button>
+          <div class="vue-dialog-buttons">
+            <span class="expand" />
+            <button
+              ref="no"
+              @click.prevent="$modal.hide(modalName)"
+              class="btn btn-sm btn-flat"
+            >
+              Cancel
+            </button>
+            <button
+              @focusout="sureOpen && $refs.no && $refs.no.focus()"
+              @click.prevent="completeDeleteAction"
+              class="btn btn-sm btn-primary"
+            >
+              {{ this.titleCaseAction }} {{ this.dbElement }}
+            </button>
+          </div>
         </div>
       </modal>
 
@@ -146,76 +144,76 @@
         @closed="sureClosed"
         @before-open="beforeOpened"
       >
-        <div
-          class="dialog-content"
-          v-if="this.dialectData.disabledFeatures.duplicateTable"
-        >
-          <div class="dialog-c-title text-center">
-            Table Duplication not supported for {{ this.dialectTitle }} yet. Stay tuned!
-          </div>
-        </div>
-        <div
-          class="dialog-content"
-          v-else
-        >
-          <div class="dialog-c-title">
-            {{ this.dbAction | titleCase }} <span class="tab-like"><tab-icon :tab="tabIcon" />
-              {{ this.dbElement }}</span>?
-          </div>
-          <div class="form-group">
-            <label for="duplicateTableName">New table name</label>
-            <input
-              type="text"
-              name="duplicateTableName"
-              class="form-control"
-              required
-              v-model="duplicateTableName"
-              autofocus
-            >
-          </div>
-          <small>This will create a new table and copy all existing data into it. Keep in mind that any indexes,
-            relations, or triggers associated with the original table will not be duplicated in the new table</small>
-        </div>
-        <div
-          v-if="!this.dialectData.disabledFeatures.duplicateTable"
-          class="vue-dialog-buttons"
-        >
-          <span class="expand" />
-          <button
-            ref="no"
-            @click.prevent="$modal.hide(duplicateTableModal)"
-            class="btn btn-sm btn-flat"
+        <div v-kbd-trap="true">
+          <div
+            class="dialog-content"
+            v-if="this.dialectData.disabledFeatures.duplicateTable"
           >
-            Cancel
-          </button>
-          <pending-changes-button
-            :submit-apply="duplicateTable"
-            :submit-sql="duplicateTableSql"
-          />
+            <div class="dialog-c-title text-center">
+              Table Duplication not supported for {{ this.dialectTitle }} yet. Stay tuned!
+            </div>
+          </div>
+          <div
+            class="dialog-content"
+            v-else
+          >
+            <div class="dialog-c-title">
+              {{ this.dbAction | titleCase }} <span class="tab-like"><tab-icon :tab="tabIcon" />
+                {{ this.dbElement }}</span>?
+            </div>
+            <div class="form-group">
+              <label for="duplicateTableName">New table name</label>
+              <input
+                type="text"
+                name="duplicateTableName"
+                class="form-control"
+                required
+                v-model="duplicateTableName"
+                autofocus
+                ref="duplicateTableNameInput"
+              >
+            </div>
+            <small>This will create a new table and copy all existing data into it. Keep in mind that any indexes,
+              relations, or triggers associated with the original table will not be duplicated in the new table</small>
+          </div>
+          <div
+            v-if="!this.dialectData.disabledFeatures.duplicateTable"
+            class="vue-dialog-buttons"
+          >
+            <span class="expand" />
+            <button
+              ref="no"
+              @click.prevent="$modal.hide(duplicateTableModal)"
+              class="btn btn-sm btn-flat"
+            >
+              Cancel
+            </button>
+            <pending-changes-button
+              :submit-apply="duplicateTable"
+              :submit-sql="duplicateTableSql"
+            />
+          </div>
         </div>
       </modal>
     </portal>
 
-    <confirmation-modal
-      name="core-tabs-close-confirmation"
-      ref="closeConfirmation"
-    >
+    <confirmation-modal :id="confirmModalId">
       <template v-slot:title>
-        <div class="dialog-c-title">
-          Really close
-          <span
-            class="tab-like"
-            v-if="closingTab"
-          >
-            <tab-icon :tab="closingTab" /> {{ closingTab.title }}
-          </span>
-          ?
-        </div>
+        Really close
+        <span
+          class="tab-like"
+          v-if="closingTab"
+        >
+          <tab-icon :tab="closingTab" /> {{ closingTab.title }}
+        </span>
+        ?
       </template>
       <template v-slot:message>
         You will lose unsaved changes
       </template>
     </confirmation-modal>
+
+    <sql-files-import-modal @submit="importSqlFiles" />
   </div>
 </template>
 
@@ -247,12 +245,13 @@ import { readWebFile, getLastExportPath } from '@/common/utils'
 import { readFileSync, writeFileSync } from 'fs'
 import Noty from 'noty'
 import ConfirmationModal from './common/modals/ConfirmationModal.vue'
+import SqlFilesImportModal from '@/components/common/modals/SqlFilesImportModal.vue'
 
 import { safeSqlFormat as safeFormat } from '@/common/utils';
 import pluralize from 'pluralize'
 
 export default Vue.extend({
-  props: ['connection'],
+  props: [],
   components: {
     Statusbar,
     QueryEditor,
@@ -266,6 +265,7 @@ export default Vue.extend({
     TabIcon,
     PendingChangesButton,
     ConfirmationModal,
+    SqlFilesImportModal,
     },
     data() {
       return {
@@ -285,6 +285,7 @@ export default Vue.extend({
         dbDuplicateTableParams: null,
         duplicateTableName: null,
         closingTab: null,
+        confirmModalId: 'core-tabs-close-confirmation',
       }
     },
     watch: {
@@ -299,6 +300,7 @@ export default Vue.extend({
   },
   computed: {
     ...mapState('tabs', { 'activeTab': 'active', 'tabs': 'tabs' }),
+    ...mapState(['connection']),
     ...mapGetters({ 'menuStyle': 'settings/menuStyle', 'dialect': 'dialect', 'dialectData': 'dialectData', 'dialectTitle': 'dialectTitle' }),
     tabIcon() {
       return {
@@ -343,7 +345,6 @@ export default Vue.extend({
         { event: AppEvent.dropDatabaseElement, handler: this.dropDatabaseElement },
         { event: AppEvent.duplicateDatabaseTable, handler: this.duplicateDatabaseTable },
         { event: AppEvent.dropzoneDrop, handler: this.handleDropzoneDrop },
-        { event: AppEvent.promptQueryImportFromComputer, handler: this.handlePromptQueryImportFromComputer },
         { event: AppEvent.promptQueryExport, handler: this.handlePromptQueryExport },
         { event: AppEvent.beginImport, handler: this.beginImport },
       ]
@@ -359,6 +360,7 @@ export default Vue.extend({
     },
     keymap() {
       const result = {
+        'ctrl+shift+T': this.reopenLastClosedTab,
         'ctrl+tab': this.nextTab,
         'ctrl+shift+tab': this.previousTab,
         'alt+1': this.handleAltNumberKeyPress,
@@ -392,7 +394,7 @@ export default Vue.extend({
       this.$nextTick(async () => {
         try {
           if (this.dbAction.toLowerCase() === 'drop') {
-            await this.connection.dropElement(dbName, entityType?.toUpperCase(), schema)
+            await this.connection.dropElement(dbName, entityType?.toUpperCase(), schema);
             // timeout is more about aesthetics so it doesn't refresh the table right away.
 
               setTimeout(() => {
@@ -402,7 +404,7 @@ export default Vue.extend({
             }
 
           if (this.dbAction.toLowerCase() === 'truncate') {
-            await this.connection.truncateElement(dbName, entityType?.toUpperCase(), schema)
+            await this.connection.truncateElement(dbName, entityType?.toUpperCase(), schema);
           }
 
           this.$noty.success(`${this.dbAction} completed successfully`)
@@ -431,7 +433,7 @@ export default Vue.extend({
       }
 
       try {
-        const sql = await this.connection.duplicateTableSql(tableName, this.duplicateTableName, schema)
+        const sql = await this.connection.duplicateTableSql(tableName, this.duplicateTableName, schema);
         const formatted = safeFormat(sql, { language: FormatterDialect(this.dialect) })
 
         const tab = new OpenTab('query')
@@ -476,7 +478,7 @@ export default Vue.extend({
             return
           }
 
-          await this.connection.duplicateTable(tableName, this.duplicateTableName, schema)
+          await this.connection.duplicateTable(tableName, this.duplicateTableName, schema);
 
           // timeout is more about aesthetics so it doesn't refresh the table right away.
           setTimeout(() => {
@@ -500,7 +502,11 @@ export default Vue.extend({
     },
     sureOpened() {
       this.sureOpen = true
-      this.$refs.no.focus()
+      if (this.$refs.duplicateTableNameInput) {
+        this.$refs.duplicateTableNameInput.focus()
+      } else {
+        this.$refs.no.focus()
+      }
     },
     sureClosed() {
       this.sureOpen = false
@@ -516,8 +522,11 @@ export default Vue.extend({
     },
     async addTab(item: OpenTab) {
 
-      await this.$store.dispatch('tabs/add', item)
+      await this.$store.dispatch('tabs/add', { item, endOfPosition: true })
       await this.setActiveTab(item)
+    },
+    async reopenLastClosedTab() {
+      await this.$store.dispatch("tabs/reopenLastClosedTab")
     },
     nextTab() {
       if (this.activeTab == this.lastTab) {
@@ -569,7 +578,7 @@ export default Vue.extend({
         return
       }
       try {
-        const result = await this.connection[method](table.name, table.schema)
+        const result = await this.connection[method](table.name, table.schema);
         const stringResult = safeFormat(_.isArray(result) ? result[0] : result, { language: FormatterDialect(this.dialect) })
         this.createQuery(stringResult)
       } catch (ex) {
@@ -676,18 +685,7 @@ export default Vue.extend({
 
       noty.close()
     },
-    async handlePromptQueryImportFromComputer() {
-      const paths: string[] | undefined = this.$native.dialog.showOpenDialogSync({
-        title: "Import Queries",
-        properties: ['openFile', 'multiSelections'],
-        filters: [
-          { name: 'SQL', extensions: ['sql'] }
-        ]
-      })
-
-      // do nothing if canceled
-      if (!paths) return;
-
+    async importSqlFiles(paths: string[]) {
       const files = paths.map((path) => ({
         path,
         name: path.replace(/^.*[\\/]/, '').replace(/\.sql$/, ''),
@@ -778,7 +776,7 @@ export default Vue.extend({
       }
     },
     async loadRoutineCreate(routine) {
-      const result = await this.connection.getRoutineCreateScript(routine.name, routine.type, routine.schema)
+      const result = await this.connection.getRoutineCreateScript(routine.name, routine.type, routine.schema);
       const stringResult = safeFormat(_.isArray(result) ? result[0] : result, { language: FormatterDialect(this.dialect) })
       this.createQuery(stringResult);
     },
@@ -847,7 +845,7 @@ export default Vue.extend({
     async close(tab: OpenTab, options?: CloseTabOptions) {
       if (tab.unsavedChanges && !options?.ignoreUnsavedChanges) {
         this.closingTab = tab
-        const confirmed = await this.$refs.closeConfirmation.confirm();
+        const confirmed = await this.$confirmById(this.confirmModalId);
         this.closingTab = null
         if (!confirmed) return
       }

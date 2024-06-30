@@ -1,12 +1,12 @@
 // Copyright (c) 2015 The SQLECTRON Team
 import { readFileSync } from 'fs';
 import { parse as bytesParse } from 'bytes'
-import { ConnectionPool, IColumnMetadata, IRecordSet, Request } from 'mssql'
+import { ConnectionError, ConnectionPool, IColumnMetadata, IRecordSet, Request } from 'mssql'
 import { identify, StatementType } from 'sql-query-identifier'
 import knexlib from 'knex'
 import _ from 'lodash'
 
-import { DatabaseElement, IDbConnectionDatabase, IDbConnectionServer, IDbConnectionServerConfig } from "../types"
+import { DatabaseElement, IDbConnectionDatabase, IDbConnectionServer } from "../types"
 import {
   buildDatabaseFilter,
   buildDeleteQueries,
@@ -31,6 +31,7 @@ import {
 } from './BasicDatabaseClient'
 import { FilterOptions, OrderBy, TableFilter, ExtendedTableColumn, TableIndex, TableProperties, TableResult, StreamResults, Routine, TableOrView, NgQueryResult, DatabaseFilterOptions, TableChanges } from '../models';
 import { AlterTableSpec, IndexAlterations, RelationAlterations } from '@shared/lib/dialects/models';
+import { AuthOptions, AzureAuthService } from '../authentication/azure';
 const log = logRaw.scope('sql-server')
 
 const D = SqlServerData
@@ -69,20 +70,23 @@ const SQLServerContext = {
 // DO NOT USE CONCAT() in sql, not compatible with Sql Server <= 2008
 // SQL Server < 2012 might eventually need its own class.
 export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
+  connectionBaseType = 'sqlserver' as const;
+
   server: IDbConnectionServer
   database: IDbConnectionDatabase
-  defaultSchema: () => string
+  defaultSchema: () => Promise<string>
   version: SQLServerVersion
   dbConfig: any
   readOnlyMode: boolean
   logger: any
   pool: ConnectionPool;
+  authService: AzureAuthService;
 
   constructor(server: IDbConnectionServer, database: IDbConnectionDatabase) {
     super( knexlib({ client: 'mssql'}), SQLServerContext, server, database)
     this.dialect = 'mssql';
     this.readOnlyMode = server?.config?.readOnlyMode || false;
-    this.defaultSchema = ():string => 'dbo'
+    this.defaultSchema = async (): Promise<string> => 'dbo'
     this.logger = () => log
   }
 
@@ -169,7 +173,7 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
     }))
   }
 
-  versionString(): string {
+  async versionString(): Promise<string> {
     return this.version.versionString.split(" \n\t")[0]
   }
 
@@ -186,7 +190,7 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
     return results.map((result, idx) => this.parseRowQueryResult(result, rowsAffected, commands[idx], result?.columns, options.arrayRowMode))
   }
 
-  query(queryText: string) {
+  async query(queryText: string) {
     const queryRequest: Request = this.pool.request();
     return {
       execute: async(): Promise<NgQueryResult[]> => {
@@ -285,7 +289,8 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
     return res.length === 1 ? res[0].columnName : null
   }
 
-  async listTableIndexes(table: string, schema: string = this.defaultSchema()): Promise<TableIndex[]> {
+  async listTableIndexes(table: string, schema: string = null): Promise<TableIndex[]> {
+    schema = schema ?? await this.defaultSchema();
     const sql = `
       SELECT
 
@@ -341,7 +346,8 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
     return _.sortBy(result, 'id') as TableIndex[]
   }
 
-  async getTableProperties(table: string, schema: string = this.defaultSchema()): Promise<TableProperties> {
+  async getTableProperties(table: string, schema: string = null): Promise<TableProperties> {
+    schema = schema ?? await this.defaultSchema();
     const triggers = await this.listTableTriggers(table, schema)
     const indexes = await this.listTableIndexes(table, schema)
     const description = await this.getTableDescription(table, schema)
@@ -433,6 +439,18 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
     return totalRecords
   }
 
+  async setElementNameSql(elementName: string, newElementName: string, typeOfElement: DatabaseElement, schema: string = null): Promise<string> {
+    schema = schema ?? await this.defaultSchema();
+    if (typeOfElement !== DatabaseElement.TABLE && typeOfElement !== DatabaseElement.VIEW) {
+      return ''
+    }
+
+    elementName = this.wrapValue(schema + '.' + elementName)
+    newElementName = this.wrapValue(newElementName)
+
+    return `EXEC sp_rename ${elementName}, ${newElementName};`
+  }
+
   async dropElement (elementName: string, typeOfElement: DatabaseElement, schema = 'dbo') {
     const sql = `DROP ${D.wrapLiteral(typeOfElement)} ${this.wrapIdentifier(schema)}.${this.wrapIdentifier(elementName)}`
     await this.driverExecuteSingle(sql)
@@ -462,11 +480,10 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
     await this.driverExecuteSingle(sql)
   }
 
-  createDatabaseSQL(): string {
+  async createDatabaseSQL(): Promise<string> {
     throw new Error("Method not implemented.");
   }
 
-  // should figure out how to not require this because it's being a butt
   protected async rawExecuteQuery(q: string, options: any): Promise<SQLServerResult> {
     this.logger().info('RUNNING', q, options);
 
@@ -501,18 +518,17 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
     await this.driverExecuteSingle(truncateAll);
   }
 
-  async truncateElement (elementName: string, typeOfElement: DatabaseElement, schema = 'dbo') {
-    const sql = `TRUNCATE ${D.wrapLiteral(typeOfElement)} ${this.wrapIdentifier(schema)}.${this.wrapIdentifier(elementName)}`
-    await this.driverExecuteSingle(sql)
+  async truncateElementSql(elementName: string, typeOfElement: DatabaseElement, schema = 'dbo') {
+    return `TRUNCATE ${D.wrapLiteral(typeOfElement)} ${this.wrapIdentifier(schema)}.${this.wrapIdentifier(elementName)}`
   }
 
   async duplicateTable(tableName: string, duplicateTableName: string, schema = 'dbo') {
-    const sql = this.duplicateTableSql(tableName, duplicateTableName, schema)
+    const sql = await this.duplicateTableSql(tableName, duplicateTableName, schema)
 
     await this.driverExecuteSingle(sql)
   }
 
-  duplicateTableSql(tableName: string, duplicateTableName: string, schema) {
+  async duplicateTableSql(tableName: string, duplicateTableName: string, schema) {
     return `SELECT * INTO ${this.wrapIdentifier(schema)}.${this.wrapIdentifier(duplicateTableName)} FROM ${this.wrapIdentifier(schema)}.${this.wrapIdentifier(tableName)}`
   }
 
@@ -530,7 +546,7 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
   }
 
   async alterIndex(payload: IndexAlterations) {
-    const sql = this.alterIndexSql(payload)
+    const sql = await this.alterIndexSql(payload)
     await this.executeWithTransaction(sql)
   }
 
@@ -692,14 +708,15 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
   }
 
   async queryStream(query: string, chunkSize: number): Promise<StreamResults> {
+    const { columns, totalRows } = await this.getColumnsAndTotalRows(query)
     return {
-      totalRows: undefined,
-      columns: undefined,
+      totalRows,
+      columns,
       cursor: new SqlServerCursor(this.pool.request(), query, chunkSize),
     }
   }
 
-  getQuerySelectTop(table: string, limit: number): string {
+  async getQuerySelectTop(table: string, limit: number): Promise<string> {
     return `SELECT TOP ${limit} * FROM ${this.wrapIdentifier(table)}`;
   }
 
@@ -813,7 +830,7 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
   }
 
   async alterRelation(payload: RelationAlterations) {
-    const query = this.alterRelationSql(payload)
+    const query = await this.alterRelationSql(payload)
     await this.executeWithTransaction(query);
   }
 
@@ -841,10 +858,13 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
   async connect(): Promise<void> {
     await super.connect();
 
-    this.dbConfig = this.configDatabase(this.server, this.database)
+    this.dbConfig = await this.configDatabase(this.server, this.database)
     this.pool = await new ConnectionPool(this.dbConfig).connect();
 
     this.pool.on('error', (err) => {
+      if (err instanceof ConnectionError) {
+        log.log('IS INSTANCE OF')
+      }
       log.error("Pool event: connection error:", err.name, err.message);
     });
 
@@ -854,6 +874,7 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
   }
 
   async disconnect(): Promise<void> {
+    this.authService?.cancel();
     await this.pool.close();
 
     await super.disconnect();
@@ -871,7 +892,7 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
     return []
   }
 
-  supportedFeatures() {
+  async supportedFeatures() {
     return {
       customRoutines: true,
       comments: true,
@@ -880,11 +901,12 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
       editPartitions: false,
       backups: false,
       backDirFormat: false,
-      restore: false
+      restore: false,
+      indexNullsNotDistinct: false,
     }
   }
 
-  applyChangesSql(changes: TableChanges): string {
+  async applyChangesSql(changes: TableChanges): Promise<string> {
     // fix for bit fields
     if (changes.inserts) {
       changes.inserts.forEach((insert) => {
@@ -957,19 +979,42 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
     }
   }
 
-  private configDatabase(server: IDbConnectionServer, database: IDbConnectionDatabase): Promise<IDbConnectionServerConfig> {
+  private async configDatabase(server: IDbConnectionServer, database: IDbConnectionDatabase): Promise<any> { // changed to any for now, might need to make some changes
     const config: any = {
-      user: server.config.user,
-      password: server.config.password,
       server: server.config.host,
       database: database.database,
-      port: server.config.port,
       requestTimeout: Infinity,
       appName: 'beekeeperstudio',
       pool: {
-        max: 10,
+        max: 10
       }
     };
+
+    if (server.config.azureAuthOptions?.azureAuthEnabled) {
+      this.authService = new AzureAuthService();
+      await this.authService.init(server.config.authId)
+
+      const options: AuthOptions = {
+        password: server.config.password,
+        userName: server.config.user,
+        tenantId: server.config.azureAuthOptions.tenantId,
+        clientSecret: server.config.azureAuthOptions.clientSecret,
+        msiEndpoint: server.config.azureAuthOptions.msiEndpoint
+      };
+
+      config.authentication = await this.authService.auth(server.config.azureAuthOptions.azureAuthType, options);
+
+      config.options = {
+        encrypt: true
+      };
+
+      return config;
+    }
+
+    config.user = server.config.user;
+    config.password = server.config.password;
+    config.port = server.config.port;
+
     if (server.config.domain) {
       config.domain = server.config.domain
     }
@@ -1158,7 +1203,7 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
         sys.default_constraints
           ON all_columns.default_object_id = default_constraints.object_id
       WHERE
-        schemas.name = ${D.escapeString(schema || this.defaultSchema(), true)}
+        schemas.name = ${D.escapeString(schema || await this.defaultSchema(), true)}
         AND tables.name = ${D.escapeString(table, true)}
     `
     const { data } = await this.driverExecuteSingle(sql)
@@ -1172,7 +1217,8 @@ export class SQLServerClient extends BasicDatabaseClient<SQLServerResult> {
     })
   }
 
-  private async getTableDescription(table: string, schema = this.defaultSchema()) {
+  private async getTableDescription(table: string, schema: string | null = null) {
+    schema = schema ?? await this.defaultSchema();
     const query = `SELECT *
       FROM fn_listextendedproperty (
         'MS_Description',

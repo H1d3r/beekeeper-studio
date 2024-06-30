@@ -3,14 +3,15 @@ import {
   ColumnComponent,
   MenuObject,
   RangeComponent,
+  Tabulator,
 } from "tabulator-tables";
 import { markdownTable } from "markdown-table";
 import { ElectronPlugin } from "@/lib/NativeWrapper";
 import Papa from "papaparse";
 import { stringifyRangeData, rowHeaderField } from "@/common/utils";
-import { BasicDatabaseClient } from "../db/clients/BasicDatabaseClient";
 import { escapeHtml } from "@shared/lib/tabulator";
-import store from "@/store";
+// ?? not sure about this but :shrug: 
+import Vue from 'vue';
 
 type ColumnMenuItem = MenuObject<ColumnComponent>;
 
@@ -50,21 +51,7 @@ export const resizeAllColumnsToMatch: ColumnMenuItem = {
 
 export const resizeAllColumnsToFitContent: ColumnMenuItem = {
   label: createMenuItem("Resize all columns to fit content"),
-  action: (_, column) => {
-    try {
-      column.getTable().blockRedraw();
-      const columns = column.getTable().getColumns();
-      columns.forEach((col) => {
-        if (col.getField() !== rowHeaderField) {
-          col.setWidth(true);
-        }
-      });
-    } catch (error) {
-      console.error(error);
-    } finally {
-      column.getTable().restoreRedraw();
-    }
-  },
+  action: (_, column) => resizeAllColumnsToFitContentAction(column.getTable()),
 };
 
 export const resizeAllColumnsToFixedWidth: ColumnMenuItem = {
@@ -85,6 +72,21 @@ export const resizeAllColumnsToFixedWidth: ColumnMenuItem = {
     }
   },
 };
+
+export function resizeAllColumnsToFitContentAction(table: Tabulator) {
+  try {
+    const columns = table.getColumns();
+    columns.forEach((col) => {
+      if (col.getField() !== rowHeaderField) {
+        col.setWidth(true);
+      }
+    });
+  } catch (error) {
+    console.error(error);
+  } finally {
+    table.restoreRedraw();
+  }
+}
 
 export const commonColumnMenu = [
   sortAscending,
@@ -108,14 +110,12 @@ export async function copyRange(options: {
 export async function copyRange(options: {
   range: RangeComponent;
   type: "sql";
-  connection: BasicDatabaseClient<any>;
   table: string;
   schema?: string;
 }): Promise<void>;
 export async function copyRange(options: {
   range: RangeComponent;
   type: "plain" | "tsv" | "json" | "markdown" | "sql";
-  connection?: BasicDatabaseClient<any>;
   table?: string;
   schema?: string;
 }) {
@@ -158,11 +158,7 @@ export async function copyRange(options: {
       break;
     }
     case "sql":
-      text = await options.connection.getInsertQuery({
-        table: options.table,
-        schema: options.schema,
-        data: rangeData,
-      });
+      text = await Vue.prototype.$util.send('conn/getInsertQuery', { tableInsert: { table: options.table, schema: options.schema, data: rangeData }})
       break;
   }
   ElectronPlugin.clipboard.writeText(text);
@@ -242,7 +238,6 @@ export function copyActionsMenu(options: {
         copyRange({
           range,
           type: "sql",
-          connection: store.state.connection,
           table,
           schema,
         }),

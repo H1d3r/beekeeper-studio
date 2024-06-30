@@ -35,6 +35,8 @@ import './common/initializers/big_int_initializer.ts'
 import SettingsPlugin from './plugins/SettingsPlugin'
 import rawLog from 'electron-log'
 import { HeaderSortTabulatorModule } from './plugins/HeaderSortTabulatorModule'
+import { UtilityConnection } from './lib/UtilityConnection'
+import { VueKeyboardTrapDirectivePlugin } from '@pdanpdan/vue-keyboard-trap';
 
 (async () => {
 
@@ -92,7 +94,8 @@ import { HeaderSortTabulatorModule } from './plugins/HeaderSortTabulatorModule'
     // (window as any).SQLHint = SQLHint;
     (window as any).XLSX = xlsx;
     Vue.config.devtools = platformInfo.isDevelopment;
-
+    // @ts-ignore
+    window.platformInfo = platformInfo
     Vue.mixin(AppEventMixin)
     Vue.mixin({
       methods: {
@@ -124,6 +127,15 @@ import { HeaderSortTabulatorModule } from './plugins/HeaderSortTabulatorModule'
       }
     })
 
+    ipcRenderer.on('port', (event, { sId, utilDied }) => {
+      log.log('Received port in renderer with sId: ', sId)
+      Vue.prototype.$util = new UtilityConnection(event.ports[0], sId);
+
+      if (utilDied) {
+        ipcRenderer.emit('utilDied');
+      }
+    })
+
     Vue.config.productionTip = false
     Vue.use(TypeOrmPlugin, {connection})
     Vue.use(VueHotkey)
@@ -142,6 +154,7 @@ import { HeaderSortTabulatorModule } from './plugins/HeaderSortTabulatorModule'
       theme: 'mint',
       closeWith: ['button', 'click'],
     })
+    Vue.use(VueKeyboardTrapDirectivePlugin)
 
     const app = new Vue({
       render: h => h(App),

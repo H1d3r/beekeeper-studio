@@ -4,7 +4,7 @@
     class="tabletable tabcontent flex-col"
     :class="{'view-only': !editable}"
   >
-    <EditorModal
+    <editor-modal
       ref="editorModal"
       @save="onSaveEditorModal"
     />
@@ -13,7 +13,7 @@
     </template>
     <template v-else>
       <row-filter-builder
-        v-if="table.columns?.length"
+        v-if="table.columns && table.columns.length"
         :columns="table.columns"
         :reactive-filters="tableFilters"
         @input="handleRowFilterBuilderInput"
@@ -48,15 +48,15 @@
         </x-button>
         <!-- Info -->
         <table-length
+          v-if="!minimalMode"
           :table="table"
-          :connection="connection"
         />
         <a
           @click="refreshTable"
           tabindex="0"
           role="button"
           class="statusbar-item hoverable"
-          v-if="lastUpdatedText && !error"
+          v-if="lastUpdatedText && !error && !minimalMode"
           :title="'Updated' + ' ' + lastUpdatedText"
         >
           <i class="material-icons">update</i>
@@ -73,7 +73,10 @@
       </div>
 
       <!-- Pagination -->
-      <div class="tabulator-paginator">
+      <div
+        v-if="!minimalMode"
+        class="tabulator-paginator"
+      >
         <div class="flex-center flex-middle flex">
           <a
             v-if="(this.page > 1)"
@@ -229,31 +232,33 @@
         class="vue-dialog beekeeper-modal"
         :name="`discard-changes-modal-${tab.id}`"
       >
-        <div class="dialog-content">
-          <div class="dialog-c-title">
-            Confirmation
+        <div v-kbd-trap="true">
+          <div class="dialog-content">
+            <div class="dialog-c-title">
+              Confirmation
+            </div>
+            <div class="modal-form">
+              Sorting or Filtering will discard {{ pendingChangesCount }} pending change(s) to <b>{{ table.name }}</b>.
+              Are you sure?
+            </div>
           </div>
-          <div class="modal-form">
-            Sorting or Filtering will discard {{ pendingChangesCount }} pending change(s) to <b>{{ table.name }}</b>.
-            Are you sure?
+          <div class="vue-dialog-buttons">
+            <button
+              class="btn btn-flat"
+              type="button"
+              @click.prevent="$modal.hide(`discard-changes-modal-${tab.id}`)"
+            >
+              Cancel
+            </button>
+            <button
+              class="btn btn-primary"
+              type="button"
+              @click.prevent="forceFilter"
+              autofocus
+            >
+              I'm Sure
+            </button>
           </div>
-        </div>
-        <div class="vue-dialog-buttons">
-          <button
-            class="btn btn-flat"
-            type="button"
-            @click.prevent="$modal.hide(`discard-changes-modal-${tab.id}`)"
-          >
-            Cancel
-          </button>
-          <button
-            class="btn btn-primary"
-            type="button"
-            @click.prevent="forceFilter"
-            autofocus
-          >
-            I'm Sure
-          </button>
         </div>
       </modal>
     </portal>
@@ -291,11 +296,11 @@ import { mapGetters, mapState } from 'vuex';
 import { TableUpdate, TableUpdateResult, ExtendedTableColumn } from '@/lib/db/models';
 import { dialectFor, FormatterDialect } from '@shared/lib/dialects/models'
 import { format } from 'sql-formatter';
-import { normalizeFilters, safeSqlFormat } from '@/common/utils'
+import { normalizeFilters, safeSqlFormat, createTableFilter } from '@/common/utils'
 import { TableFilter } from '@/lib/db/models';
 import { LanguageData } from '../../lib/editor/languageData'
 import { escapeHtml } from '@shared/lib/tabulator';
-import { copyRange, pasteRange, copyActionsMenu, pasteActionsMenu, commonColumnMenu, createMenuItem, resizeAllColumnsToFixedWidth, resizeAllColumnsToFitContent } from '@/lib/menu/tableMenu';
+import { copyRange, pasteRange, copyActionsMenu, pasteActionsMenu, commonColumnMenu, createMenuItem, resizeAllColumnsToFixedWidth, resizeAllColumnsToFitContent, resizeAllColumnsToFitContentAction } from '@/lib/menu/tableMenu';
 import { tabulatorForTableData } from "@/common/tabulator";
 
 const log = rawLog.scope('TableTable')
@@ -309,7 +314,7 @@ function createTableFilter(field: string) {
 export default Vue.extend({
   components: { Statusbar, ColumnFilterModal, TableLength, RowFilterBuilder, EditorModal },
   mixins: [data_converter, DataMutators, FkLinkMixin],
-  props: ["connection", "active", 'tab', 'table'],
+  props: ["active", 'tab', 'table'],
   data() {
     return {
       filters: [],
@@ -347,16 +352,19 @@ export default Vue.extend({
       initialized: false,
       internalColumnPrefix: "__beekeeper_internal_",
       internalIndexColumn: "__beekeeper_internal_index",
+
+      /** This is true when we switch to minimal mode while TableTable is not active */
+      enabledMinimalModeWhileInactive: false,
     };
   },
   computed: {
-    ...mapState(['tables', 'tablesInitialLoaded', 'usedConfig', 'database', 'workspaceId']),
-    ...mapGetters(['dialectData', 'dialect']),
+    ...mapState(['tables', 'tablesInitialLoaded', 'usedConfig', 'database', 'workspaceId', 'connectionType', 'connection']),
+    ...mapGetters(['dialectData', 'dialect', 'minimalMode']),
     isEmpty() {
       return _.isEmpty(this.data);
     },
     isCassandra() {
-      return this.connection?.connectionType === 'cassandra'
+      return this.connectionType === 'cassandra'
     },
     columnsWithFilterAndOrder() {
       if (!this.tabulator || !this.table) return []
@@ -408,6 +416,7 @@ export default Vue.extend({
       //   const focusingTable = this.tabulator.element.contains(document.activeElement)
       //   if (!focusingTable) this.page--
       // }
+      result['shift+enter'] = this.openEditorMenuByShortcut.bind(this)
       result[this.ctrlOrCmd('r')] = this.refreshTable.bind(this)
       result[this.ctrlOrCmd('n')] = this.cellAddRow.bind(this)
       result[this.ctrlOrCmd('s')] = this.saveChanges.bind(this)
@@ -493,7 +502,6 @@ export default Vue.extend({
             { separator: true },
             ...copyActionsMenu({
               range,
-              connection: this.connection,
               table: this.table.name,
               schema: this.table.schema,
             }),
@@ -508,7 +516,7 @@ export default Vue.extend({
             keyDatas.forEach(keyData => {
               menu.push({
                 label: createMenuItem(`Go to ${keyData.toTable} (${keyData.toColumn})`),
-                action: (e, cell) => this.fkClick(keyData, cell)
+                action: (_e, cell) => this.fkClick(keyData, cell)
               })
             })
           }
@@ -518,7 +526,7 @@ export default Vue.extend({
       }
 
       const columnMenu = (_e, column: ColumnComponent) => {
-        const range = _.last(column.getRanges())
+        const range = _.last((column as any).getRanges()) as RangeComponent;
         let hideColumnLabel = `Hide ${column.getDefinition().title}`
 
         if (hideColumnLabel.length > 33) {
@@ -530,7 +538,6 @@ export default Vue.extend({
           { separator: true },
           ...copyActionsMenu({
             range,
-            connection: this.connection,
             table: this.table.name,
             schema: this.table.schema,
           }),
@@ -602,7 +609,7 @@ export default Vue.extend({
             dataType: column.dataType,
             generated: column.generated,
           },
-          mutatorData: this.resolveTabulatorMutator(column.dataType, dialectFor(this.connection.connectionType)),
+          mutatorData: this.resolveTabulatorMutator(column.dataType, dialectFor(this.connectionType)),
           dataType: column.dataType,
           minWidth: globals.minColumnWidth,
           width: columnWidth,
@@ -640,9 +647,10 @@ export default Vue.extend({
         }
 
         if (column.dataType && /^(bool|boolean)$/i.test(column.dataType)) {
-          const trueVal = this.dialectData.boolean?.true ?? true
-          const falseVal = this.dialectData.boolean?.false ?? false
-          const values = [falseVal, trueVal]
+          const values = [
+            { label: 'false', value: this.dialectData.boolean?.false ?? false },
+            { label: 'true', value: this.dialectData.boolean?.true ?? true },
+          ]
           if (column.nullable) values.push({ label: '(NULL)', value: null })
           result.editorParams['values'] = values
         }
@@ -731,6 +739,16 @@ export default Vue.extend({
           this.tableFilters = this.tab.getFilters()
           this.triggerFilter(this.tableFilters)
         }
+
+        if (this.enabledMinimalModeWhileInactive) {
+          this.enabledMinimalModeWhileInactive = false
+          resizeAllColumnsToFitContentAction(this.tabulator)
+        }
+
+        // $nextTick doesn't work here
+        setTimeout(() => {
+          this.tabulator.modules.selectRange.restoreFocus()
+        })
       } else {
         this.tabulator.blockRedraw()
       }
@@ -758,7 +776,19 @@ export default Vue.extend({
     },
     pendingChangesCount() {
       this.tab.unsavedChanges = this.pendingChangesCount > 0
-    }
+    },
+    minimalMode() {
+      // Auto resize the columns when the tab is active (not hidden in the DOM)
+      // so tabulator can do it correctly.
+      if (this.tabulator && this.active) {
+        resizeAllColumnsToFitContentAction(this.tabulator)
+      }
+
+      // If the tab is not active, we can auto resize later when it's active
+      if (!this.active) {
+        this.enabledMinimalModeWhileInactive = this.minimalMode
+      }
+    },
   },
   beforeDestroy() {
     if(this.interval) clearInterval(this.interval)
@@ -806,7 +836,7 @@ export default Vue.extend({
       return `
         <span class="title">
           ${escapeHtml(columnName)}
-          <span class="badge">${dataType}</span>
+          <span class="badge column-data-type">${dataType}</span>
         </span>`
     },
     maybeScrollAndSetWidths() {
@@ -843,7 +873,7 @@ export default Vue.extend({
       this.initialized = true
       this.resetPendingChanges()
       await this.$store.dispatch('updateTableColumns', this.table)
-      this.rawTableKeys = await this.connection.getTableKeys(this.table.name, this.table.schema)
+      this.rawTableKeys = await this.connection.getTableKeys(this.table.name, this.table.schema);
       const rawPrimaryKeys = await this.connection.getPrimaryKeys(this.table.name, this.table.schema);
       this.primaryKeys = rawPrimaryKeys.map((key) => key.columnName);
       this.tableFilters = this.tab.getFilters() || [createTableFilter(this.table.columns?.[0]?.columnName)]
@@ -948,14 +978,23 @@ export default Vue.extend({
         disabled: areAllCellsPrimarykey || !this.editable,
       }
     },
+    isEditorMenuDisabled (cell: CellComponent) {
+      if (this.isPrimaryKey(cell.getField())) return true
+      return !this.editable && !this.insertionCellCheck(cell)
+    },
+    openEditorMenuByShortcut() {
+      const range: RangeComponent = _.last(this.tabulator.getRanges())
+      const cell = range.getCells().flat()[0];
+      if (this.isEditorMenuDisabled(cell)) return
+      // FIXME maybe we can avoid calling child methods directly like this? 
+      // it should be done by calling an event using this.$modal.show(modalName) 
+      // or this.$trigger(AppEvent.something) if possible
+      this.$refs.editorModal.openModal(cell.getValue(), undefined, cell)
+    },
     openEditorMenu(cell: CellComponent) {
-      const disabled = (cell: CellComponent) => {
-        if (this.isPrimaryKey(cell.getField())) return true
-        return !this.editable && !this.insertionCellCheck(cell)
-      }
       return {
-        label: createMenuItem("Edit in modal"),
-        disabled,
+        label: createMenuItem("Edit in modal", "Shift + Enter"),
+        disabled: this.isEditorMenuDisabled(cell),
         action: () => {
           if (this.isPrimaryKey(cell.getField())) return
           this.$refs.editorModal.openModal(cell.getValue(), undefined, cell)
@@ -976,7 +1015,7 @@ export default Vue.extend({
         const result = {}
         columnNames.forEach((c) => {
           const d = rowData[c]
-          if (this.isPrimaryKey(c) && !d) {
+          if (this.isPrimaryKey(c) && (!d && d != 0)) {
             // do nothing
           } else {
             result[c] = d
@@ -1036,7 +1075,7 @@ export default Vue.extend({
           return 'textarea'
         case 'bool':
         case 'boolean':
-          return 'select'
+          return 'list'
         default: return ne
       }
     },
@@ -1253,7 +1292,7 @@ export default Vue.extend({
           updates: this.pendingChanges.updates,
           deletes: this.pendingChanges.deletes
         }
-        const sql = this.connection.applyChangesSql(changes)
+        const sql = await this.connection.applyChangesSql(changes);
         const formatted = format(sql, { language: FormatterDialect(this.dialect) })
         this.$root.$emit(AppEvent.newTab, formatted)
       } catch(ex) {
@@ -1292,7 +1331,7 @@ export default Vue.extend({
             deletes: this.pendingChanges.deletes
           }
 
-          const result = await this.connection.applyChanges(payload)
+          const result = await this.connection.applyChanges(payload);
           const updateIncludedPK = this.pendingChanges.updates.find(e => e.column === e.pkColumn)
 
           if (updateIncludedPK || this.hasPendingInserts || this.hasPendingDeletes) {
@@ -1453,10 +1492,22 @@ export default Vue.extend({
               orderBy,
               filters,
               this.table.schema,
-              selects,
-              // FIXME: This should be added to all clients, not just cassandra (cassandra needs ALLOW FILTERING to do filtering because of performance)
-              { allowFilter: this.isCassandra }
+              selects
             );
+
+            // TODO(@day): it has come to my attention that the below comment does not properly explain my confusion, where is this allowFilter business coming from and WHY
+            // the fuck is this??
+            //const response = await this.connection.selectTop(
+            //  this.table.name,
+            //  offset,
+            //  this.limit,
+            //  orderBy,
+            //  filters,
+            //  this.table.schema,
+            //  selects,
+            //  // FIXME: This should be added to all clients, not just cassandra (cassandra needs ALLOW FILTERING to do filtering because of performance)
+            //  { allowFilter: this.isCassandra }
+            //);
 
             if (_.xor(response.fields, this.table.columns.map(c => c.columnName)).length > 0) {
               log.debug('table has changed, updating')

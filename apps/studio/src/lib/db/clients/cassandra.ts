@@ -56,6 +56,8 @@ type CassandraVersion = {
 };
 
 export class CassandraClient extends BasicDatabaseClient<CassandraResult> {
+  connectionBaseType = 'cassandra' as const;
+
   client: cassandra.Client;
   versionInfo: CassandraVersion;
 
@@ -84,19 +86,21 @@ export class CassandraClient extends BasicDatabaseClient<CassandraResult> {
     return new CassandraChangeBuilder(table, [])
   }
 
-  supportedFeatures(): SupportedFeatures {
-    return { 
-      customRoutines: false, 
-      comments: true, 
-      properties: true, 
-      partitions: false, 
+  async supportedFeatures(): Promise<SupportedFeatures> {
+    return {
+      customRoutines: false,
+      comments: true,
+      properties: true,
+      partitions: false,
       editPartitions: false,
-      backups: false, 
-      backDirFormat: false, 
-      restore: false 
+      backups: false,
+      backDirFormat: false,
+      restore: false,
+      indexNullsNotDistinct: false,
     }
   }
-  versionString(): string {
+
+  async versionString(): Promise<string> {
     return this.versionInfo.versionString;
   }
 
@@ -203,7 +207,7 @@ export class CassandraClient extends BasicDatabaseClient<CassandraResult> {
     } as any));
   }
 
-  query(queryText: string, _options?: any): CancelableQuery {
+  async query(queryText: string, _options?: any): Promise<CancelableQuery> {
     const pid = null;
     const cancelable = createCancelablePromise({
       ...errors.CANCELED_BY_USER,
@@ -211,7 +215,7 @@ export class CassandraClient extends BasicDatabaseClient<CassandraResult> {
     } as any);
 
     return {
-      async execute() {
+      execute: async () => {
         const queries = this.identifyCommands(queryText).map((query: any) => this.executeQuery(query.text))
         const retPromises = await Promise.all(queries)
 
@@ -219,7 +223,7 @@ export class CassandraClient extends BasicDatabaseClient<CassandraResult> {
       },
 
       // idk if this works. Should probably try it one day...
-      async cancel() {
+      cancel: async () => {
         if (!pid) {
           throw new Error('Query not ready to be canceled');
         }
@@ -273,11 +277,11 @@ export class CassandraClient extends BasicDatabaseClient<CassandraResult> {
     }
   }
 
-  getQuerySelectTop(table: string, limit: number, _schema?: string): string {
+  async getQuerySelectTop(table: string, limit: number, _schema?: string): Promise<string> {
     return `SELECT * FROM ${this.wrapIdentifier(table)} LIMIT ${limit}`;
   }
 
-  listMaterializedViews(_filter?: FilterOptions): Promise<TableOrView[]> {
+  async listMaterializedViews(_filter?: FilterOptions): Promise<TableOrView[]> {
     return Promise.resolve([]) // TODO: Make sure Cassandra doesn't  actually do this
   }
 
@@ -330,7 +334,7 @@ export class CassandraClient extends BasicDatabaseClient<CassandraResult> {
     await this.driverExecuteSingle(query);
   }
 
-  createDatabaseSQL(): string {
+  async createDatabaseSQL(): Promise<string> {
     throw new Error("Method not implemented.");
   }
 
@@ -350,7 +354,7 @@ export class CassandraClient extends BasicDatabaseClient<CassandraResult> {
     return Promise.resolve([]) // TODO: Routines really don't exist in Cassandra
   }
 
-  applyChangesSql(changes: TableChanges): string {
+  async applyChangesSql(changes: TableChanges): Promise<string> {
     return applyChangesSql(changes, this.knex);
   }
 
@@ -383,16 +387,18 @@ export class CassandraClient extends BasicDatabaseClient<CassandraResult> {
     throw new Error("Method not implemented.");
   }
 
+  async setElementNameSql(_elementName: string, _newElementName: string, _typeOfElement: DatabaseElement): Promise<string> {
+    return ''
+  }
+
   async dropElement(elementName: string, typeOfElement: DatabaseElement, _schema?: string): Promise<void> {
     const sql = `DROP ${typeOfElement} ${this.wrapIdentifier(elementName)}`;
 
     await this.driverExecuteSingle(sql);
   }
 
-  async truncateElement(elementName: string, typeOfElement: DatabaseElement, _schema?: string): Promise<void> {
-    const sql = `TRUNCATE ${typeOfElement} ${this.wrapIdentifier(elementName)}`;
-
-    await this.driverExecuteSingle(sql);
+  async truncateElementSql(elementName: string, typeOfElement: DatabaseElement, _schema?: string): Promise<string> {
+    return `TRUNCATE ${typeOfElement} ${this.wrapIdentifier(elementName)}`;
   }
 
   async truncateAllTables(_schema?: string): Promise<void> {
@@ -473,12 +479,12 @@ export class CassandraClient extends BasicDatabaseClient<CassandraResult> {
   }
 
   async duplicateTable(tableName: string, duplicateTableName: string, _schema?: string): Promise<void> {
-    const sql = this.duplicateTableSql(tableName, duplicateTableName);
+    const sql = await this.duplicateTableSql(tableName, duplicateTableName);
 
     await this.driverExecuteSingle(sql);
   }
 
-  duplicateTableSql(tableName: string, duplicateTableName: string, _schema?: string): string {
+  async duplicateTableSql(tableName: string, duplicateTableName: string, _schema?: string): Promise<string> {
     const sql = `
       CREATE TABLE ${this.wrapIdentifier(duplicateTableName)} AS
       SELECT * FROM ${this.wrapIdentifier(tableName)}
@@ -598,7 +604,8 @@ export class CassandraClient extends BasicDatabaseClient<CassandraResult> {
       command: command || (isSelect && 'SELECT'),
       rows: rows || [],
       fields: fields,
-      isPaged: data.isPaged(),
+      // FIXME not sure what this is, this causes the query to fail. .isPaged() is not defined.
+      // isPaged: data.isPaged(),
       rowCount: isSelect ? (rowLength || 0) : undefined,
       affectedRows: !isSelect && !isNaN(rowLength) ? rowLength : undefined,
     };

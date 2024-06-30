@@ -18,9 +18,9 @@
         <tab-icon :tab="tab" />
         <span
           class="tab-title truncate"
-          :title="title + scope"
+          :title="title + (!$store.getters.minimalMode ? scope : '')"
         >{{ title }} <span
-          v-if="scope"
+          v-if="scope && !$store.getters.minimalMode"
           class="tab-title-scope"
         >{{ scope }}</span></span>
         <div class="tab-action">
@@ -171,7 +171,7 @@ import TabIcon from './tab/TabIcon.vue'
       },
       tableTabTitle() {
         if (!this.tab.type === 'table') return null;
-        let result = this.tab.table.name
+        let result = this.tab.tableName
         return result
       },
       queryTabTitle() {

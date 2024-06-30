@@ -14,6 +14,8 @@ const TEST_VERSIONS = [
 
 function testWith(dockerTag: string, readonly: boolean) {
   describe(`SQL Server [${dockerTag}] - read-only mode? ${readonly}`, () => {
+    jest.setTimeout(dbtimeout)
+
     let container;
     let util
     // const sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay))
@@ -22,7 +24,6 @@ function testWith(dockerTag: string, readonly: boolean) {
 
     beforeAll(async () => {
       const timeoutDefault = 5000
-      jest.setTimeout(dbtimeout)
 
       container = await new GenericContainer(`mcr.microsoft.com/mssql/server:${dockerTag}`)
         .withName(`mssql-${dockerTag}`)
@@ -62,9 +63,7 @@ function testWith(dockerTag: string, readonly: boolean) {
     })
 
     afterAll(async () => {
-      if (util.connection) {
-        await util.connection.disconnect()
-      }
+      await util.disconnect()
       if (container) {
         await container.stop()
       }

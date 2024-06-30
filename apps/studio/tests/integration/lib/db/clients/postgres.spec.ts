@@ -19,15 +19,18 @@ const TEST_VERSIONS = [
   { version: 'latest', socket: true, readonly: false },
   { version: 'latest', socket: false, readonly: true },
   { version: 'latest', socket: false, readonly: false },
-]
+] as const
 
-function testWith(dockerTag, socket = false, readonly = false) {
+type TestVersion = typeof TEST_VERSIONS[number]['version']
+
+function testWith(dockerTag: TestVersion, socket = false, readonly = false) {
   describe(`Postgres [${dockerTag} - socket? ${socket} - database read-only mode? ${readonly}]`, () => {
+    jest.setTimeout(dbtimeout)
+
     let container: StartedTestContainer;
     let util: DBTestUtil
 
     beforeAll(async () => {
-      jest.setTimeout(dbtimeout)
       // environment = await new DockerComposeEnvironment(composeFilePath, composeFile).up();
       // container = environment.getContainer("psql_1")
 
@@ -155,10 +158,7 @@ function testWith(dockerTag, socket = false, readonly = false) {
     })
 
     afterAll(async () => {
-      if (util.connection) {
-        await util.connection.disconnect()
-      }
-
+      await util.disconnect()
       if (container) {
         await container.stop()
       }
@@ -427,7 +427,7 @@ function testWith(dockerTag, socket = false, readonly = false) {
         ]
       }
 
-      const query = util.connection.query(`
+      const query = await util.connection.query(`
         CREATE TABLE IF NOT EXISTS public.withquestionmark (
           "approved?" boolean NULL DEFAULT false,
           str_col character varying(255) NOT NULL,
@@ -474,6 +474,16 @@ function testWith(dockerTag, socket = false, readonly = false) {
       expect(enumColumn.array).toBeFalsy()
       expect(enumArrayColumn.array).toBeTruthy()
     })
+
+    if (dockerTag === 'latest') {
+      it("should list indexes with info", async () => {
+        await util.knex.schema.createTable('has_indexes_2', (table) => {
+          table.specificType("text", "varchar(255) UNIQUE NULLS NOT DISTINCT")
+        })
+        const indexes = await util.connection.listTableIndexes('has_indexes_2')
+        expect(indexes[0].nullsNotDistinct).toBeTruthy()
+      })
+    }
 
     describe("Common Tests", () => {
       if (readonly) {

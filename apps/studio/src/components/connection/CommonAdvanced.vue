@@ -48,7 +48,7 @@
             Keepalive Interval <i
               class="material-icons"
               style="padding-left: 0.25rem"
-              v-tooltip="'Ping the server after this many seconds when idle <br /> to prevent getting disconnected due to inactiviy <br/> (like<code> ServerAliveInterval 60 </code>in ssh/config)'"
+              v-tooltip="{ content: 'Ping the server after this many seconds when idle <br /> to prevent getting disconnected due to inactiviy <br/> (like<code> ServerAliveInterval 60 </code>in ssh/config)', html: true}"
             >help_outlined</i>
           </label>
           <input
@@ -199,8 +199,8 @@
   </toggle-form-area>
 </template>
 <script>
-  import FilePicker from '@/components/common/form/FilePicker'
-  import ExternalLink from '@/components/common/ExternalLink'
+  import FilePicker from '@/components/common/form/FilePicker.vue'
+  import ExternalLink from '@/components/common/ExternalLink.vue'
 
   import { join as pathJoin } from 'path'
 import platformInfo from '@/common/platform_info'

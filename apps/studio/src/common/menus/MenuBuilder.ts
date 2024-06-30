@@ -17,12 +17,13 @@ export default class extends DefaultMenu {
         this.menuItems.zoomout,
         this.menuItems.fullscreen,
         this.menuItems.themeToggle,
-        this.menuItems.sidebarToggle
+        this.menuItems.sidebarToggle,
+        this.menuItems.minimalModeToggle,
       ]
     }
     if (!platformInfo.isMac)
       (result.submenu as Electron.MenuItemConstructorOptions[]).push(this.menuItems.menuStyleToggle)
-    if (platformInfo.environment === 'development')
+    if (platformInfo.isDevelopment)
       (result.submenu as Electron.MenuItemConstructorOptions[]).push(this.menuItems.reload)
     return result
   }
@@ -49,6 +50,7 @@ export default class extends DefaultMenu {
         this.menuItems.newWindow,
         this.menuItems.newTab,
         this.menuItems.closeTab,
+        this.menuItems.importSqlFiles,
         this.menuItems.quickSearch,
         this.menuItems.disconnect,
         this.menuItems.quit
