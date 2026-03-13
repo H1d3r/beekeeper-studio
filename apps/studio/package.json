@@ -154,7 +154,7 @@
     "ws": "^8.18.3",
     "xel": "beekeeper-studio/xel",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
-    "yargs-parser": "^21.0.0"
+    "yargs-parser": "^22.0.0"
   },
   "devDependencies": {
     "@aws-sdk/types": "^3.127.0",
@@ -196,7 +196,7 @@
     "dts-gen": "0.7.4",
     "electron": "39.5.2",
     "electron-builder": "26.7.0",
-    "esbuild": "^0.21.2",
+    "esbuild": "^0.27.4",
     "esbuild-node-externals": "^1.13.1",
     "eslint": "^6.7.2",
     "eslint-plugin-vue": "^6.2.2",
@@ -216,7 +216,7 @@
     "ts-jest": "^29.1.5",
     "tsx": "^4.20.3",
     "typescript": "~5.8.3",
-    "vite": "~5.4.21",
+    "vite": "~8.0.0",
     "vite-plugin-commonjs": "^0.10.1",
     "vue-template-compiler": "^2.7.16",
     "xvfb-maybe": "^0.2.1"
